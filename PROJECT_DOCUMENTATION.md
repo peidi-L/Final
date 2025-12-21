@@ -13,17 +13,9 @@ This builds on work by Hoff et al. (2002) and Smith et al. (2019). I'm implement
 
 ### 1. Data Loading (`loader.py`)
 
-I created a module to process the Slashdot dataset. The main function is `get_top_1000_core_nodes()`.
+I created a module to process the Slashdot dataset. The main function is `load_data()`.
 
-Here's what it does:
-1. Counts how many connections each node has
-2. Sorts nodes by connection count (most connected first)
-3. Picks the top 1000 nodes
-4. Renumbers them from 0 to 999
-5. Filters edges to only keep connections between these 1000 nodes
-6. Returns the edges with new IDs and signs
-
-The output is a list of edges. Each edge looks like `[source_id, target_id, sign]`. The sign is +1 for friends and -1 for enemies. All node IDs are sequential (0-999).
+It uses pandas to load the TSV file, counts connections per node, filters for the top k most connected nodes, and remaps IDs to sequential indices. The output is a numpy array of edges `[source_id, target_id, sign]` where signs are +1 for friends and -1 for enemies.
 
 ### 2. Position Initialization (`models.py`)
 
@@ -36,68 +28,17 @@ It supports three geometries:
 
 Right now I'm using Euclidean for the baseline. I'll add the others later.
 
-### 3. Two-Stage Training (`train.py`)
+### 3. Training (`train.py`)
 
-This is the main training script. It positions nodes so friends are close and enemies are far apart.
+The main training script optimizes latent positions using a vectorized loss function. It loads data, initializes positions, and runs L-BFGS-B optimization. After training, it evaluates performance using AUC (comparing predicted distances to true edge signs) and generates a visualization of the learned embedding.
 
-The process works like this:
-1. Loads the top 1000 nodes using `loader.py`
-2. Creates random 2D starting positions using `models.py`
-3. **Stage 1:** Clusters friends together. It tries to make friend connections have distance around 1.0
-4. **Stage 2:** Handles both friends and enemies:
-   - Friends stay close (distance ~1.0) with a stronger penalty
-   - Enemies get pushed apart by penalizing small distances
-5. Returns the final 2D positions for all nodes
+## Model Architecture
 
-## How This Matches the Theory
+The loss function implements log-likelihood maximization from Hoff et al. (2002), penalizing distances for positive edges. For friends, we minimize squared distance to pull connected nodes together. For enemies, we use an exponential penalty term `exp(-dist)` that increases sharply when enemies are close, pushing them apart.
 
-I've checked my code against the papers. It matches what Hoff et al. (2002) and Smith et al. (2019) describe.
+The initialization follows Smith et al. (2019) geometric constraints: Euclidean uses standard normal distribution, hyperbolic uses Poincaré disk with radius capped at 0.9 to avoid boundary issues.
 
-### Initialization
-
-The initialization function enforces geometric constraints from Smith et al. (2019).
-
-**Euclidean:**
-- My code uses `np.random.randn()` to create random positions
-- This matches Hoff et al. (2002). They assume positions come from a Gaussian distribution
-- No boundary constraints needed
-
-**Spherical:**
-- My code normalizes positions to unit length
-- This matches Smith et al. (2019). Points must have length exactly 1
-- All points lie on the unit sphere
-
-**Hyperbolic:**
-- My code scales positions to stay inside the unit disk
-- This matches the Poincaré Disk model from Smith et al. (2019)
-- Points must be inside the disk (not on the edge)
-- I cap the radius at 0.9 to avoid infinity issues
-
-### Training Logic
-
-The training matches Hoff et al. (2002). I'm using a distance-based loss function.
-
-**Friends:**
-- My code: `total_error += (dist - 1.0) ** 2`
-- Theory: Hoff's model says link probability is high when distance is low
-- Why it works: Maximizing likelihood equals minimizing squared error. By making distance 1.0, I maximize friendship probability
-
-Stage 1 only looks at friends. It clusters them at distance 1.0.
-
-Stage 2 keeps friends close (with stronger penalty) and also handles enemies.
-
-**Enemies:**
-- My code: `total_error -= capped_dist` for enemies
-- Theory: This matches Structural Balance Theory. Enemies should be far apart
-- Why it works: Subtracting distance means small distances increase error. The optimizer pushes enemies apart
-- I cap distance at 10.0 to avoid extreme values
-
-### Optimization
-
-I'm using L-BFGS-B for optimization. It's efficient for high-dimensional problems. It can also handle constraints, which I'll need for spherical and hyperbolic geometries.
-
-- Stage 1: 30 iterations (focus on friends)
-- Stage 2: 50 iterations (refine both friends and enemies)
+I'm using L-BFGS-B for optimization since it's efficient for high-dimensional problems and can handle constraints (needed for hyperbolic space later). The current implementation uses a single-stage optimization with weighted friend/enemy terms, though I initially tried a two-stage approach.
 
 ## Implementation Challenges
 
@@ -146,9 +87,8 @@ Final/
 
 1. Add spherical and hyperbolic distance calculations
 2. Implement L1 (Manhattan) and L∞ (Chebyshev) distance metrics
-3. Add evaluation metrics (AUC, accuracy, etc.)
-4. Create visualizations of the learned embeddings
-5. Compare results across different geometries and metrics
+3. Compare results across different geometries and metrics
+4. Run experiments on different subsets of the data
 
 ## References
 

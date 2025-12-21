@@ -1,87 +1,115 @@
 import numpy as np
-
+import matplotlib.pyplot as plt
 from scipy.optimize import minimize
-
+from sklearn.metrics import roc_auc_score
+# import time  # was using this for timing, not needed anymore
 import loader
-
 import models
 
-def train_sequential():
-    links = loader.get_top_1000_core_nodes("soc-sign-Slashdot090221.txt")
+# --- Configuration ---
+DATA_PATH = "soc-sign-Slashdot090221.txt"
+DIMENSIONS = 2
+LAMBDA_FRIEND = 2.0  # Weight for positive ties
+MAX_ITER = 100
+
+def train_model():
+    # 1. Load Data
+    try:
+        links, num_users = loader.load_data(DATA_PATH)
+    except Exception as e:
+        print(f"Error loading data: {e}")
+        return
+
+    # extract edge info
+    sources = links[:, 0]
+    targets = links[:, 1]
+    signs = links[:, 2]
     
-    links_array = np.array(links)
-    num_users = int(links_array[:, :2].max()) + 1
-    print(f"Training on {num_users} users with {len(links)} connections.")
+    is_friend = signs == 1
+    is_enemy = signs == -1
 
-    initial_positions = models.initialize_positions(num_users, 2, 'euclidean')
-    params = initial_positions.flatten()
+    print("Initializing latent positions...")
+    x0 = models.initialize_positions(num_users, DIMENSIONS, 'euclidean').flatten()
 
-    friend_mask = links_array[:, 2] == 1
-    friend_links = links_array[friend_mask]
-    friend_sources = friend_links[:, 0].astype(int)
-    friend_targets = friend_links[:, 1].astype(int)
-
-    print("Starting Stage 1: Clustering friends...")
-
-    def stage1_loss(current_params):
-        pos = current_params.reshape((num_users, 2))
+    # initial attempt with SGD was too unstable
+    # from torch import optim
+    # optimizer = optim.SGD(model.parameters(), lr=0.01)
+    
+    def loss_function(params):
+        pos = params.reshape((num_users, DIMENSIONS))
         
-        source_pos = pos[friend_sources]
-        target_pos = pos[friend_targets]
-        diffs = source_pos - target_pos
-        distances = np.linalg.norm(diffs, axis=1)
+        # get coordinates for all edges
+        pos_u = pos[sources]
+        pos_v = pos[targets]
         
-        return np.sum((distances - 1.0) ** 2)
+        # compute dists
+        dists = models.safe_distance(pos_u, pos_v)
+        
+        # friend loss: want dists close to 0
+        friend_loss = np.sum(dists[is_friend]**2)
+        
+        # enemy loss: push them apart
+        enemy_loss = np.sum(np.exp(-dists[is_enemy]))
+        
+        return friend_loss + (LAMBDA_FRIEND * enemy_loss)
 
-    result_1 = minimize(
-        stage1_loss, 
-        params, 
+    print(f"Starting optimization (L-BFGS-B, max_iter={MAX_ITER})...")
+    res = minimize(
+        loss_function, 
+        x0, 
         method='L-BFGS-B', 
-        options={'maxiter': 30, 'disp': True}
+        options={'maxiter': MAX_ITER, 'disp': True}
     )
 
-    stage_1_positions = result_1.x
-    print("Stage 1 done.")
+    final_pos = res.x.reshape((num_users, DIMENSIONS))
 
-    print("Starting Stage 2: Handling enemies...")
+    evaluate_model(final_pos, sources, targets, signs)
+    plot_latent_space(final_pos, signs, sources, targets)
 
-    sources = links_array[:, 0].astype(int)
-    targets = links_array[:, 1].astype(int)
-    signs = links_array[:, 2]
-    enemy_mask = signs == -1
-    enemy_sources = sources[enemy_mask]
-    enemy_targets = targets[enemy_mask]
+    return final_pos
 
-    def stage2_loss(current_params):
-        pos = current_params.reshape((num_users, 2))
+def evaluate_model(pos, sources, targets, true_signs):
+    """
+    Calculates Area Under Curve (AUC) to see if distances predict signs.
+    """
+    pos_u = pos[sources]
+    pos_v = pos[targets]
+    dists = np.linalg.norm(pos_u - pos_v, axis=1)
+    
+    # friends should have low dist, enemies high dist
+    # so -dist should correlate with sign
+    score = -dists 
+    
+    auc = roc_auc_score(true_signs, score)
+    print("\n" + "="*30)
+    print(f"FINAL RESULTS")
+    print(f"AUC Score: {auc:.4f}")
+    print("="*30 + "\n")
+
+def plot_latent_space(pos, signs, sources, targets):
+    """
+    Visualizes the top 500 edges to avoid clutter.
+    """
+    plt.figure(figsize=(10, 10))
+    
+    # plot subset to avoid clutter
+    subset = 500
+    for i in range(min(len(signs), subset)):
+        u, v = sources[i], targets[i]
+        s = signs[i]
+        color = 'g' if s == 1 else 'r'
+        alpha = 0.1 if s == 1 else 0.3
+        plt.plot([pos[u,0], pos[v,0]], [pos[u,1], pos[v,1]], c=color, alpha=alpha, lw=0.5)
         
-        all_source_pos = pos[sources]
-        all_target_pos = pos[targets]
-        all_diffs = all_source_pos - all_target_pos
-        all_distances = np.linalg.norm(all_diffs, axis=1)
-        
-        friend_error = 2.0 * np.sum((all_distances[friend_mask] - 1.0) ** 2)
-        
-        enemy_distances = all_distances[enemy_mask]
-        capped_enemy_distances = np.clip(enemy_distances, None, 10.0)
-        enemy_error = -np.sum(capped_enemy_distances)
-        
-        return friend_error + enemy_error
-
-    result_2 = minimize(
-        stage2_loss, 
-        stage_1_positions, 
-        method='L-BFGS-B', 
-        options={'maxiter': 50, 'disp': True}
-    )
-
-    final_positions = result_2.x.reshape((num_users, 2))
-    print("Stage 2 done.")
-
-    return final_positions
+    plt.scatter(pos[:, 0], pos[:, 1], s=10, alpha=0.6, c='blue')
+    plt.title("Latent Space Embedding (Green=Friend, Red=Foe)")
+    plt.xlabel("Dimension 1")
+    plt.ylabel("Dimension 2")
+    plt.grid(True, linestyle='--', alpha=0.3)
+    
+    output_file = "latent_space_viz.png"
+    plt.savefig(output_file)
+    print(f"Visualization saved to {output_file}")
 
 if __name__ == "__main__":
-    final_map = train_sequential()
-    print("Final coordinates for user 0:")
-    print(final_map[0])
-
+    train_model()
