@@ -69,6 +69,22 @@ This study aims to advance our understanding of how geometric and metric choices
 - Extend latent space models to accommodate signed relationships in a geometrically principled manner
 - Offer insights into how curvature-based latent representations can improve model interpretability and prediction for real-world network data
 
+## Implementation Notes
+
+### Computational Considerations
+
+The loss functions are vectorized using numpy operations to handle large networks efficiently. For the Slashdot dataset subset (1000 nodes, ~50k edges), each optimization iteration computes all pairwise distances simultaneously rather than iterating through edges.
+
+### Optimization Strategy
+
+The two-stage training approach addresses the competing objectives of clustering friends while separating enemies. Stage 1 establishes friend structure, then Stage 2 refines positions while enforcing enemy separation. L-BFGS-B is used for its efficiency, though boundary constraints for hyperbolic space may require alternative optimizers in future work.
+
+### Challenges Encountered
+
+- **Boundary constraints**: Hyperbolic space requires points to stay within the Poincaré disk. Current initialization keeps points safely inside, but optimization constraints need refinement.
+- **Loss balancing**: The relative weighting of friend vs. enemy terms affects convergence. The current 2.0 multiplier on friend errors was determined empirically.
+- **Numerical stability**: Distances near the disk boundary approach infinity, requiring careful initialization and potentially different distance formulations.
+
 ### Setup
 
 ### Environment Setup

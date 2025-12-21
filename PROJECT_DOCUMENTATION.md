@@ -99,6 +99,30 @@ I'm using L-BFGS-B for optimization. It's efficient for high-dimensional problem
 - Stage 1: 30 iterations (focus on friends)
 - Stage 2: 50 iterations (refine both friends and enemies)
 
+## Implementation Challenges
+
+### Performance Optimization
+
+The initial implementation used Python loops to compute distances for each edge pair, which was computationally expensive. With ~1000 nodes and tens of thousands of edges, each optimization step was taking several seconds. I refactored the loss functions to use vectorized numpy operations, computing all distances in a single matrix operation. This reduced per-iteration time by roughly 10x.
+
+The key insight was pre-computing source and target indices as numpy arrays, then using advanced indexing to extract all relevant positions at once. This allows `np.linalg.norm()` to compute distances across all edges simultaneously.
+
+### Boundary Constraints in Hyperbolic Space
+
+The Poincaré disk model requires all points to lie strictly inside the unit circle. During optimization, points can drift toward the boundary, causing numerical instability as distances approach infinity. I initially tried using `np.clip()` to constrain positions, but this created discontinuities that broke L-BFGS-B's gradient estimates.
+
+The current approach scales initial positions by `0.9 / (1 + norm)` to keep them safely inside the disk. For future work with hyperbolic optimization, I'll need to implement proper constraint handling or use a different optimizer that respects boundaries better.
+
+### Loss Function Balancing
+
+The two-stage approach emerged from trial and error. Initially, I tried optimizing friends and enemies simultaneously, but the optimizer would collapse all nodes to minimize enemy distances (since there are typically fewer enemy edges). Stage 1 establishes a stable friend structure, then Stage 2 refines it while pushing enemies apart.
+
+The 2.0 multiplier on friend errors in Stage 2 was chosen empirically—lower values allowed friends to drift too far apart, while higher values prevented enemies from separating. This suggests the loss landscape has competing objectives that need careful weighting.
+
+### L-BFGS-B Stability
+
+I found that L-BFGS-B sometimes fails to converge if the initial positions are too spread out. Starting with positions scaled by 0.1 (rather than unit variance) helps the optimizer find a good basin quickly. For hyperbolic space, I'll likely need to experiment with different initialization strategies or switch to SGD with momentum for the initial epochs.
+
 ## Summary
 
 I've translated the probability theory from the papers into code. The implementation has:
