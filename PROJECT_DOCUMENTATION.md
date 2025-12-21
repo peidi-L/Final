@@ -5,132 +5,126 @@
 
 ## Overview
 
-This project implements latent space models for signed social networks, comparing how different geometric spaces (Euclidean, Spherical, Hyperbolic) and distance metrics affect network structure and model performance. The implementation is based on foundational work by Hoff et al. (2002) and geometric extensions by Smith et al. (2019).
+I'm working on latent space models for signed social networks. The goal is to compare how different geometric spaces affect network structure. I'm testing Euclidean, Spherical, and Hyperbolic spaces. I'm also looking at different distance metrics.
 
-## What Has Been Implemented
+This builds on work by Hoff et al. (2002) and Smith et al. (2019). I'm implementing their ideas in Python.
+
+## What I've Built So Far
 
 ### 1. Data Loading (`loader.py`)
 
-The `loader.py` module processes the Slashdot Zoo signed social network dataset:
+I created a module to process the Slashdot dataset. The main function is `get_top_1000_core_nodes()`.
 
-- **Function:** `get_top_1000_core_nodes(file_path)`
-- **Purpose:** Filters the network to the top 1000 most connected nodes
-- **Process:**
-  1. Counts connections for all nodes in the network
-  2. Sorts nodes by connection count (highest first)
-  3. Selects the top 1000 nodes
-  4. Renumbers nodes sequentially from 0 to 999
-  5. Filters edges to only include connections between these top 1000 nodes
-  6. Returns edges with new sequential IDs and signs (+1 for friends, -1 for foes)
+Here's what it does:
+1. Counts how many connections each node has
+2. Sorts nodes by connection count (most connected first)
+3. Picks the top 1000 nodes
+4. Renumbers them from 0 to 999
+5. Filters edges to only keep connections between these 1000 nodes
+6. Returns the edges with new IDs and signs
 
-**Output:** A list of edges `[source_id, target_id, sign]` where:
-- Node IDs are sequential (0-999)
-- Only includes connections between the top 1000 most connected nodes
-- Preserves the sign information (friend/foe relationships)
+The output is a list of edges. Each edge looks like `[source_id, target_id, sign]`. The sign is +1 for friends and -1 for enemies. All node IDs are sequential (0-999).
 
 ### 2. Position Initialization (`models.py`)
 
-The `models.py` module provides geometric initialization functions:
+This module creates random starting positions for nodes. The function is `initialize_positions()`.
 
-- **Function:** `initialize_positions(num_users, dimensions, geometry)`
-- **Purpose:** Creates random starting positions for nodes in different geometric spaces
-- **Supported Geometries:**
-  - **Euclidean:** Random positions from Gaussian distribution
-  - **Spherical:** Random positions on unit sphere (normalized)
-  - **Hyperbolic:** Random positions within Poincaré disk (scaled to stay inside unit circle)
+It supports three geometries:
+- **Euclidean:** Random positions from a Gaussian distribution
+- **Spherical:** Random positions on a unit sphere (normalized)
+- **Hyperbolic:** Random positions inside a Poincaré disk
+
+Right now I'm using Euclidean for the baseline. I'll add the others later.
 
 ### 3. Two-Stage Training (`train.py`)
 
-The `train.py` module implements a sequential training process:
+This is the main training script. It positions nodes so friends are close and enemies are far apart.
 
-- **Function:** `train_sequential()`
-- **Purpose:** Trains a latent space model to position nodes such that friends are close and enemies are far apart
-- **Process:**
-  1. Loads top 1000 nodes using `loader.py`
-  2. Initializes random 2D positions using `models.py`
-  3. **Stage 1:** Clusters friend connections (sign = +1) by minimizing distances to target distance of 1.0
-  4. **Stage 2:** Handles both friends and enemies:
-     - Friends: Maintains close distances (~1.0) with stronger penalty
-     - Enemies: Pushes nodes apart by penalizing small distances
-  5. Returns final 2D positions for all nodes
+The process works like this:
+1. Loads the top 1000 nodes using `loader.py`
+2. Creates random 2D starting positions using `models.py`
+3. **Stage 1:** Clusters friends together. It tries to make friend connections have distance around 1.0
+4. **Stage 2:** Handles both friends and enemies:
+   - Friends stay close (distance ~1.0) with a stronger penalty
+   - Enemies get pushed apart by penalizing small distances
+5. Returns the final 2D positions for all nodes
 
-## Mathematical Foundation and Theoretical Alignment
+## How This Matches the Theory
 
-This implementation is **mathematically sound** and aligns with the theoretical constraints laid out in Hoff et al. (2002) and Smith et al. (2019).
+I've checked my code against the papers. It matches what Hoff et al. (2002) and Smith et al. (2019) describe.
 
-### 1. Initialization (Matching Smith et al., 2019)
+### Initialization
 
-The `initialize_positions` function correctly enforces the geometric "boundary conditions" described in the Smith paper.
+The initialization function enforces geometric constraints from Smith et al. (2019).
 
-#### Euclidean Geometry
-- **Code:** `np.random.randn(num_users, dimensions) * 0.1`
-- **Theory:** Matches Hoff et al. (2002). They assume latent positions come from a Gaussian (Normal) distribution. The code generates exactly that.
-- **Constraint:** No boundary constraints in Euclidean space
+**Euclidean:**
+- My code uses `np.random.randn()` to create random positions
+- This matches Hoff et al. (2002). They assume positions come from a Gaussian distribution
+- No boundary constraints needed
 
-#### Spherical Geometry
-- **Code:** `positions / norms` (normalization to unit length)
-- **Theory:** Matches Smith et al. (2019). The latent space is a Riemannian manifold. The defining constraint is that every point must have a length of exactly 1 (||x|| = 1). The normalization step enforces this strictly.
-- **Constraint:** All points must lie on the unit sphere
+**Spherical:**
+- My code normalizes positions to unit length
+- This matches Smith et al. (2019). Points must have length exactly 1
+- All points lie on the unit sphere
 
-#### Hyperbolic Geometry
-- **Code:** `positions / (1 + norms) * 0.9`
-- **Theory:** Matches the Poincaré Disk model in Smith et al. (2019). The constraint is that points must be strictly *inside* the unit disk (||x|| < 1). The edge (||x|| = 1) represents infinity. The code ensures no point ever touches the edge (max radius 0.9), preventing the distance formula from exploding to infinity.
-- **Constraint:** All points must be within the unit disk
+**Hyperbolic:**
+- My code scales positions to stay inside the unit disk
+- This matches the Poincaré Disk model from Smith et al. (2019)
+- Points must be inside the disk (not on the edge)
+- I cap the radius at 0.9 to avoid infinity issues
 
-### 2. The Training Logic (Matching Hoff et al., 2002)
+### Training Logic
 
-The `train_sequential` function is a **Distance-Based Loss** implementation of the probabilistic models in the papers.
+The training matches Hoff et al. (2002). I'm using a distance-based loss function.
 
-#### The "Friends" Logic
+**Friends:**
+- My code: `total_error += (dist - 1.0) ** 2`
+- Theory: Hoff's model says link probability is high when distance is low
+- Why it works: Maximizing likelihood equals minimizing squared error. By making distance 1.0, I maximize friendship probability
 
-- **Code:** `total_error += (dist - 1.0) ** 2`
-- **Theory:** Hoff's model says the probability of a link is high when distance is low: P(link) ∝ exp(-distance). 
-- **The Match:** In statistics, "Maximizing Likelihood" (Hoff's method) is mathematically equivalent to "Minimizing Squared Error" (this implementation). By trying to make the distance `1.0` (small), the model maximizes the probability of friendship.
+Stage 1 only looks at friends. It clusters them at distance 1.0.
 
-**Stage 1:** Focuses exclusively on friend connections, clustering them at distance 1.0.
+Stage 2 keeps friends close (with stronger penalty) and also handles enemies.
 
-**Stage 2:** Maintains friend clustering with stronger penalty (2.0 multiplier) while also handling enemies.
+**Enemies:**
+- My code: `total_error -= capped_dist` for enemies
+- Theory: This matches Structural Balance Theory. Enemies should be far apart
+- Why it works: Subtracting distance means small distances increase error. The optimizer pushes enemies apart
+- I cap distance at 10.0 to avoid extreme values
 
-#### The "Foes" Logic
+### Optimization
 
-- **Code:** `total_error -= capped_dist` (for enemies)
-- **Theory:** This aligns with **Structural Balance Theory** (mentioned in the introduction and Tang & Zhu, 2025). This theory states that "the enemy of my enemy is my friend," implying that positive links form clusters and negative links span *between* clusters.
-- **The Match:** By subtracting the distance for foes, the error increases (badness) if foes are close. The optimizer fixes this by pushing them apart. The distance is capped at 10.0 to prevent extreme values.
+I'm using L-BFGS-B for optimization. It's efficient for high-dimensional problems. It can also handle constraints, which I'll need for spherical and hyperbolic geometries.
 
-### 3. Optimization Method
-
-- **Method:** L-BFGS-B (Limited-memory Broyden-Fletcher-Goldfarb-Shanno with Bounds)
-- **Why:** This is a quasi-Newton optimization method that's efficient for high-dimensional problems and can handle constraints (useful for spherical and hyperbolic geometries).
-- **Iterations:** 
-  - Stage 1: 30 iterations (focus on friends)
-  - Stage 2: 50 iterations (refine both friends and enemies)
+- Stage 1: 30 iterations (focus on friends)
+- Stage 2: 50 iterations (refine both friends and enemies)
 
 ## Summary
 
-This implementation successfully translates the **Probability Theory** of the papers into:
-1. **Geometric Constraints** (Initialization) - Enforcing boundary conditions for different geometries
-2. **Optimization Rules** (Training) - Minimizing distance-based loss functions that align with probabilistic models
+I've translated the probability theory from the papers into code. The implementation has:
+1. Geometric constraints in initialization
+2. Optimization rules in training
 
-The code acts as a valid **Euclidean Baseline** for thesis results, providing a foundation for comparing different geometries and metrics.
+This gives me a valid Euclidean baseline. I can use it to compare different geometries and metrics later.
 
 ## File Structure
 
 ```
-/Applications/untitled folder/
+Final/
 ├── loader.py              # Data loading and filtering
-├── models.py              # Position initialization for different geometries
-├── train.py               # Two-stage training process
-├── soc-sign-Slashdot090221.txt  # Dataset
-└── PROJECT_DOCUMENTATION.md     # This file
+├── models.py              # Position initialization
+├── train.py               # Two-stage training
+├── README.md              # Project overview
+└── PROJECT_DOCUMENTATION.md  # This file
 ```
 
-## Next Steps
+## What's Next
 
-1. **Extend to other geometries:** Implement spherical and hyperbolic distance calculations
-2. **Add different metrics:** Implement L1 (Manhattan) and L∞ (Chebyshev) distance metrics
-3. **Evaluation:** Add metrics to evaluate model performance (AUC, accuracy, etc.)
-4. **Visualization:** Create visualizations of learned embeddings
-5. **Comparison:** Compare results across different geometries and metrics
+1. Add spherical and hyperbolic distance calculations
+2. Implement L1 (Manhattan) and L∞ (Chebyshev) distance metrics
+3. Add evaluation metrics (AUC, accuracy, etc.)
+4. Create visualizations of the learned embeddings
+5. Compare results across different geometries and metrics
 
 ## References
 
@@ -141,4 +135,3 @@ The code acts as a valid **Euclidean Baseline** for thesis results, providing a 
 - Tang, M., & Zhu, J. (2025). Population-level balance in signed latent space network models. *Journal of Machine Learning Research* (forthcoming).
 
 - Leskovec, J., Huttenlocher, D., & Kleinberg, J. (2010). Signed networks in social media. *Proceedings of the SIGCHI Conference on Human Factors in Computing Systems*.
-
