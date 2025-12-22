@@ -1,0 +1,26 @@
+\section{Implementation Details}
+
+The model was implemented in Python 3.9 using the \texttt{NumPy} and \texttt{SciPy} scientific computing stacks. The implementation focuses on three key components:
+
+\subsection{Optimization Strategy}
+The objective function $J(Z)$ is non-convex. To estimate the parameters, we utilized the Limited-memory Broyden–Fletcher–Goldfarb–Shanno (L-BFGS-B) algorithm. This quasi-Newton method is well-suited for parameter estimation in high-dimensional latent spaces as it approximates the Hessian matrix without the computational cost of exact calculation.
+\begin{itemize}
+    \item \textbf{Gradient Estimation:} Gradients were computed numerically via finite differences.
+    \item \textbf{Convergence Criteria:} Optimization was terminated when the projected gradient norm fell below $10^{-5}$ or after a maximum of 100 iterations.
+\end{itemize}
+
+\subsection{Vectorization}
+To handle the computational complexity of evaluating pairwise distances over large edge sets ($|E| \approx$ 100,000+), we implemented a fully vectorized loss function.
+\begin{itemize}
+    \item Edge indices are stored as integer arrays for sources ($u$) and targets ($v$).
+    \item Latent coordinates are retrieved via advanced indexing: $P_u = Z[u]$ and $P_v = Z[v]$.
+    \item Pairwise Euclidean distances are computed simultaneously for the entire batch of edges using linear algebra operations, significantly reducing runtime compared to iterative loops.
+\end{itemize}
+
+\subsection{Initialization}
+Since the energy function is non-convex, the resulting embedding is sensitive to initialization. We initialized the latent vectors $z_i$ by sampling from a scaled Gaussian distribution:
+\begin{equation}
+    z_i \sim \mathcal{N}(0, \sigma^2 I), \quad \text{with } \sigma = 0.1
+\end{equation}
+The small scale $\sigma=0.1$ was chosen to prevent early saturation of the exponential repulsive term in the loss function. For hyperbolic embeddings, to ensure numerical stability near the boundary of the Poincaré disk, we clipped the norms of the latent vectors to $1 - \epsilon$ where $\epsilon = 10^{-5}$.
+
