@@ -1,36 +1,34 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-# ==========================================
-# 1. THE MATH (Geometry & Probability)
-# ==========================================
+# 1. Geometry and probability functions
 
 def get_distance(p1, p2, geometry):
-    """Measures distance between two points based on the 'Room' they are in."""
+    """Calculates distance between two points based on the chosen geometry."""
     
-    # EUCLIDEAN (The Square Room) - Standard straight line
+    # Euclidean distance - straight line between points
     if geometry == 'Euclidean':
         return np.linalg.norm(p1 - p2)
     
-    # SPHERICAL (The Beach Ball) - Angle between points
+    # Spherical distance - shortest path on a sphere surface
     elif geometry == 'Spherical':
-        # Normalize just in case
+        # Project points to the surface
         p1 = p1 / np.linalg.norm(p1)
         p2 = p2 / np.linalg.norm(p2)
         dot_product = np.dot(p1, p2)
-        # Clip to avoid errors if dot_product is slightly > 1.0 due to math rounding
+        # Clip values to handle floating point precision issues
         return np.arccos(np.clip(dot_product, -1.0, 1.0))
     
-    # HYPERBOLIC (The Magical Tree) - Poincaré Disk formula
+    # Hyperbolic distance - using the Poincaré Disk model
     elif geometry == 'Hyperbolic':
-        # Points must be inside the disk (norm < 1)
+        # Points are restricted to the unit disk
         sq_dist = np.sum((p1 - p2)**2)
         norm_1 = np.sum(p1**2)
         norm_2 = np.sum(p2**2)
         
-        # The special formula that makes space expand
+        # Scaling formula for hyperbolic space expansion
         numerator = 2 * sq_dist
-        denominator = (1 - norm_1) * (1 - norm_2) + 1e-10 # epsilon for safety
+        denominator = (1 - norm_1) * (1 - norm_2) + 1e-10 # small epsilon for stability
         
         arg = 1 + numerator / denominator
         return np.arccosh(np.maximum(arg, 1.0))
@@ -39,18 +37,17 @@ def get_distance(p1, p2, geometry):
 
 def get_probabilities(distance, alpha_pos, alpha_neg, beta):
     """
-    The Rules of Attraction (Log-Odds):
-    1. Friendship: drops as distance grows (alpha_pos - d)
-    2. Animosity:  GROWS as distance grows (alpha_neg + beta * d)
+    Log-odds rules:
+    - Friendship decays with distance
+    - Animosity grows with distance (polarization)
     """
     
-    # Calculate the "score" (Logits) for each outcome
+    # Get raw scores for each tie type
     score_friend = alpha_pos - distance
     score_enemy  = alpha_neg + (beta * distance)
-    score_none   = 0.0  # Baseline
+    score_none   = 0.0  # Baseline reference
     
-    # Convert scores to probabilities (Softmax)
-    # We use np.exp() to turn scores into positive numbers
+    # Use softmax to convert scores to probabilities
     exp_friend = np.exp(score_friend)
     exp_enemy  = np.exp(score_enemy)
     exp_none   = np.exp(score_none)
@@ -63,54 +60,50 @@ def get_probabilities(distance, alpha_pos, alpha_neg, beta):
     
     return [p_none, p_friend, p_enemy]
 
-# ==========================================
-# 2. THE SIMULATION (The Party)
-# ==========================================
+
+# 2. Main simulation logic
 
 def run_simulation(n_people, geometry):
-    np.random.seed(42) # Ensures the random numbers are the same every time
+    np.random.seed(37) # Ensures the random numbers are the same every time
     
-    # A. PLACE PEOPLE IN THE ROOM
+    # Initialize node positions
     positions = np.zeros((n_people, 2))
     
     if geometry == 'Euclidean':
-        # Random x,y in a 2x2 square
+        # Uniform sampling in a 2x2 square
         positions = np.random.uniform(-2, 2, (n_people, 2))
         
     elif geometry == 'Spherical':
-        # Random points on a circle (normalized)
+        # Sample points on the unit circle
         raw_points = np.random.normal(0, 1, (n_people, 2))
         norms = np.linalg.norm(raw_points, axis=1, keepdims=True)
         positions = raw_points / norms
         
     elif geometry == 'Hyperbolic':
-        # Random points inside a circle (radius < 1)
-        # We put them slightly away from the edge (0.95) to keep math stable
+        # Sample points inside the Poincaré disk
         angles = np.random.uniform(0, 2*np.pi, n_people)
         radii = np.sqrt(np.random.uniform(0, 0.95, n_people)) 
         positions[:, 0] = radii * np.cos(angles)
         positions[:, 1] = radii * np.sin(angles)
+        #Computer screens and plots use a grid (X and Y). These lines use trigonometry to convert the "direction and distance" into a coordinate the computer can actually draw.
 
-    # B. DECIDE RELATIONSHIPS
+    # Generate edges
     edges = []
     
-    # Parameters (You can tweak these!)
-    # alpha_pos=2.5: High base chance of friendship
-    # alpha_neg=-1.0: Low base chance of enemies
-    # beta=0.8: Distance makes enemies VERY likely
+    # Model parameters
+    # alpha_pos: base friendship rate
+    # alpha_neg: base enmity rate
+    # beta: polarization strength
     alpha_pos, alpha_neg, beta = 2.5, -1.0, 0.8
     
-    # Check every pair of people
+    # Iterate through all pairs to decide relationships
     for i in range(n_people):
         for j in range(i + 1, n_people):
             
-            # Measure distance
             d = get_distance(positions[i], positions[j], geometry)
-            
-            # Get probabilities
             probs = get_probabilities(d, alpha_pos, alpha_neg, beta)
             
-            # Roll the dice (0=None, 1=Friend, 2=Enemy)
+            # Weighted random choice based on calculated probabilities
             choice = np.random.choice([0, 1, 2], p=probs)
             
             if choice == 1:
@@ -120,41 +113,52 @@ def run_simulation(n_people, geometry):
 
     return positions, edges
 
-# ==========================================
-# 3. VISUALIZATION (Taking the Photo)
-# ==========================================
+# 3. Graph visualization
 
 def draw_graph(positions, edges, title, geometry):
-    plt.figure(figsize=(6, 6))
+    # Increase figure size for better clarity
+    plt.figure(figsize=(10, 10))
     
-    # Draw connections
-    for (u, v, sign) in edges:
+    # Separate edges for easier legend handling and layered plotting
+    friends = [e for e in edges if e[2] == 1]
+    foes = [e for e in edges if e[2] == -1]
+    
+    # Plot foes (Red) first so they sit in the background
+    for i, (u, v, sign) in enumerate(foes):
         p1, p2 = positions[u], positions[v]
-        color = 'green' if sign == 1 else 'red'
-        # Draw line with low opacity (alpha=0.2) so it's not messy
-        plt.plot([p1[0], p2[0]], [p1[1], p2[1]], color=color, alpha=0.3, linewidth=1)
+        label = "Foes (Negative)" if i == 0 else ""
+        plt.plot([p1[0], p2[0]], [p1[1], p2[1]], color='red', alpha=0.2, linewidth=0.8, zorder=1, label=label)
         
-    # Draw people
-    plt.scatter(positions[:, 0], positions[:, 1], c='black', s=20, zorder=5)
+    # Plot friends (Green) on top of foes
+    for i, (u, v, sign) in enumerate(friends):
+        p1, p2 = positions[u], positions[v]
+        label = "Friends (Positive)" if i == 0 else ""
+        # Make all green lines lighter (more transparent)
+        plt.plot([p1[0], p2[0]], [p1[1], p2[1]], color='green', alpha=0.15, linewidth=1.2, zorder=2, label=label)
+        
+    # Plot nodes (People) on top of all lines
+    plt.scatter(positions[:, 0], positions[:, 1], c='black', s=30, zorder=3, label='People (Nodes)')
     
-    # Draw circle boundary for non-Euclidean
+    # Add boundary indicator for non-Euclidean spaces
     if geometry != 'Euclidean':
-        circle = plt.Circle((0, 0), 1, color='blue', fill=False, linestyle='--')
+        circle = plt.Circle((0, 0), 1, color='blue', fill=False, linestyle='--', label='Geometry Boundary')
         plt.gca().add_patch(circle)
         plt.xlim(-1.1, 1.1)
         plt.ylim(-1.1, 1.1)
         
-    plt.title(f"{title}\n({len(edges)} connections)")
+    plt.title(f"{title}\nTotal: {len(edges)} | Friends: {len(friends)} | Foes: {len(foes)}", fontsize=14)
     plt.axis('equal')
-    # Save the figure instead of showing it, for headless environments
+    
+    # Add a legend to define what the colors mean
+    plt.legend(loc='upper right', frameon=True, shadow=True)
+    
+    # Save the output images
     filename = f"{geometry}_simulation.png"
     plt.savefig(filename)
     print(f"Saved visualization to {filename}")
     plt.close()
 
-# ==========================================
-# 4. RUN IT!
-# ==========================================
+# 4. Execution entry point
 
 if __name__ == "__main__":
     # Run for 100 people in all 3 geometries

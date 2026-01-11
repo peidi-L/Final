@@ -1,0 +1,6 @@
+=== FINAL SCOREBOARD ===
+Geometry     | Acc      | AUC(Friend)  | AUC(Enemy)  
+--------------------------------------------------
+Euclidean    | 0.6412   | 0.8211       | 0.8020
+Spherical    | 0.6461   | 0.8002       | 0.8011
+Hyperbolic   | 0.7071   | 0.8663       | 0.8409
